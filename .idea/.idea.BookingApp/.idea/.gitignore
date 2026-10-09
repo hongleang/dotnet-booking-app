@@ -1,0 +1,25 @@
+# ---- JetBrains Rider ----
+.idea/
+*.sln.iml
+
+# ---- Local secrets and environment ----
+.env
+.env.*
+!.env.example
+*.pfx
+*.p12
+*.pem
+*.key
+
+# ---- Rider / VS Code HTTP client private settings ----
+http-client.private.env.json
+
+# ---- Local scratch files ----
+cookies.txt
+
+# ---- macOS ----
+.DS_Store
+
+# ---- Front end (Week 4) ----
+node_modules/
+dist/
