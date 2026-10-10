@@ -1,13 +1,42 @@
 using Bogus;
+using BookingApp.Api.Auth;
 using BookingApp.Api.Data.Factories;
 using BookingApp.Api.Models;
 using BookingApp.Api.Services;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 
 namespace BookingApp.Api.Data.Seeders;
 
-public class DatabaseSeeder(AppDbContext db)
+public class DatabaseSeeder(
+    AppDbContext db,
+    UserManager<AppUser> users,
+    RoleManager<IdentityRole<int>> roles,
+    IConfiguration config,
+    ILogger<DatabaseSeeder> logger
+)
 {
+    public async Task SeedUserAsync()
+    {
+        foreach (var role in new[] { Roles.Admin, Roles.Staff })
+        {
+            if (!await roles.RoleExistsAsync(role))
+            {
+                await roles.CreateAsync(new IdentityRole<int>(role));
+            }
+        }
+
+        // create an admin user
+        await EnsureUserAsync("admin@example.com", config["Seed:AdminPassword"], Roles.Admin, staffId: null);
+        
+        // create user for each staff
+        var staffPassword = config["Seed:StaffPassword"];
+        foreach (var staff in await db.Staff.ToListAsync())
+        {
+            await EnsureUserAsync(staff.Email, staffPassword, Roles.Staff, staff.Id);
+        }
+    }
+
     public async Task SeedAsync()
     {
         if (await db.Clients.AnyAsync()) return;
@@ -54,5 +83,35 @@ public class DatabaseSeeder(AppDbContext db)
         }
 
         await db.SaveChangesAsync();
+    }
+
+    private async Task EnsureUserAsync(string email, string? password, string role, int? staffId)
+    {
+        var user = await users.FindByEmailAsync(email);
+
+        if (user is null)
+        {
+            if (string.IsNullOrWhiteSpace(password))
+            {
+                logger.LogWarning("Seed:AdminPassword is not set; skipping the admin user.");
+                return;
+            }
+        
+            user = new AppUser { UserName = email, Email = email, EmailConfirmed = true, StaffId = staffId };
+            ThrowIfFailed(await users.CreateAsync(user, password), email);
+        }
+
+        if (!await users.IsInRoleAsync(user, role))
+        {
+            ThrowIfFailed(await users.AddToRoleAsync(user, role), email);
+        }
+    }
+
+    private static void ThrowIfFailed(IdentityResult result, string? email)
+    {
+        if (result.Succeeded) return;
+        
+        var errors = string.Join("; ", result.Errors.Select(e => e.Description));
+        throw new InvalidOperationException($"Could not create the admin user: {errors}");
     }
 }

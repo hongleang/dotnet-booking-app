@@ -121,3 +121,4 @@
 /Users/hongleanglim/LearningLab/Learning/dotnet/BookingApp/src/BookingApp.Api/bin/Debug/net10.0/zh-Hans/Microsoft.CodeAnalysis.Workspaces.MSBuild.resources.dll
 /Users/hongleanglim/LearningLab/Learning/dotnet/BookingApp/src/BookingApp.Api/bin/Debug/net10.0/zh-Hant/Microsoft.CodeAnalysis.Workspaces.MSBuild.resources.dll
 /Users/hongleanglim/LearningLab/Learning/dotnet/BookingApp/src/BookingApp.Api/bin/Debug/net10.0/Bogus.dll
+/Users/hongleanglim/LearningLab/Learning/dotnet/BookingApp/src/BookingApp.Api/bin/Debug/net10.0/Microsoft.AspNetCore.Identity.EntityFrameworkCore.dll

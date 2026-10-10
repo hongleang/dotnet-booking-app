@@ -1,130 +1,67 @@
+using System.Security.Claims;
+using BookingApp.Api.Auth;
 using BookingApp.Api.Data;
 using BookingApp.Api.Models;
 using BookingApp.Api.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 
 namespace BookingApp.Api.Endpoints;
 
 public record AppointmentDto(
-    int Id,
-    Client Client,
-    Service Service,
-    Staff Staff,
-    DateTimeOffset StartUtc,
-    DateTimeOffset EndUtc,
-    AppointmentStatus Status,
-    string? Notes = null
-);
+    int Id, string ClientName, string ServiceName, string StaffName,
+    DateTimeOffset StartUtc, DateTimeOffset EndUtc, AppointmentStatus Status)
+{
+    public static AppointmentDto FromEntity(Appointment a) =>
+        new(a.Id, a.Client.FullName, a.Service.Name, a.Staff.FullName, a.Start, a.End, a.Status);
+}
 
 public static class AppointmentEndpoints
 {
-    public record AppointmentFilter(DateOnly? Date, int? StaffId, AppointmentStatus? Status, int Page = 1);
-
-
-    public record CreateAppointmenttRequest(
-        DateTimeOffset Start,
-        DateTimeOffset End,
-        AppointmentStatus Status,
-        string Notes,
-        string ClientId,
-        string StaffId,
-        string Service);
-
     public static void MapAppointmentEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/appointments");
+        var group = app.MapGroup("/appointments")
+            .RequireAuthorization(Policies.StaffOrAdmin);
 
-        group.MapGet("/", async ([AsParameters] AppointmentFilter filter, AppDbContext db) =>
+        group.MapGet("/", async (DateOnly date, ClaimsPrincipal user, AppDbContext db) =>
         {
-            var query = db.Appointments.AsQueryable();
+            var (startUtc, endUtc) = BusinessTime.DayRangeUtc(date);
+            var query = db.Appointments.Where(a => a.Start >= startUtc && a.Start < endUtc);
 
-            if (filter.Date is not null)
+            if (!user.IsInRole(Roles.Admin))
             {
-                var (startUtc, endUtc) = BusinessTime.DayRangeUtc(filter.Date.Value);
-                query = query.Where(a => a.Start >= startUtc && a.Start < endUtc);
+                var staffId = user.GetStaffId();
+                if (staffId is null) return Results.Forbid();
+
+                query = query.Where(a => a.StaffId == staffId);
             }
 
-            return await query
+            var items = await query
                 .OrderBy(a => a.Start)
                 .Select(a => new AppointmentDto(
-                    a.Id, a.Client, a.Service, a.Staff,
+                    a.Id, a.Client.FullName, a.Service.Name, a.Staff.FullName,
                     a.Start, a.End, a.Status))
                 .ToListAsync();
+
+            return Results.Ok(items);
         });
 
-        group.MapPost("/", async (CreateAppointmenttRequest request, AppDbContext db) =>
+        group.MapGet("/{id:int}", async (
+            int id, ClaimsPrincipal user, AppDbContext db, IAuthorizationService auth) =>
         {
-            var service =
-                await db.Services.FirstOrDefaultAsync(service => service.Id == Convert.ToInt16(request.Service));
-            var client = await db.Clients.FirstOrDefaultAsync(client => client.Id == Convert.ToInt16(request.ClientId));
-            var staff = await db.Staff.FirstOrDefaultAsync(staff => staff.Id == Convert.ToInt16(request.StaffId));
+            var appointment = await db.Appointments
+                .AsNoTracking()
+                .Include(a => a.Client)
+                .Include(a => a.Service)
+                .Include(a => a.Staff)
+                .FirstOrDefaultAsync(a => a.Id == id);
 
-            if (service == null || client == null || staff == null)
-            {
-                // TODO: move this logic to fluent validation
-                return Results.BadRequest("Service or client or staff not found.");
-            }
+            if (appointment is null) return Results.NotFound();
 
-            var assignment = new Appointment
-            {
-                Start = request.Start.ToUniversalTime(),
-                End = request.End.ToUniversalTime(),
-                ClientId = client.Id,
-                ServiceId = service.Id,
-                Notes = request.Notes,
-                StaffId = staff.Id,
-            };
+            var result = await auth.AuthorizeAsync(user, appointment, Policies.CanViewAppointment);
+            if (!result.Succeeded) return Results.NotFound();
 
-            db.Appointments.Add(assignment);
-            await db.SaveChangesAsync();
-
-            return Results.Created($"/appointments/{assignment.Id}", new AppointmentDto(
-                assignment.Id,
-                assignment.Client,
-                assignment.Service,
-                assignment.Staff,
-                assignment.Start,
-                assignment.End,
-                assignment.Status,
-                assignment.Notes
-            ));
-        });
-        
-        // Fails: saves a +10:30 offset
-        group.MapPost("/timezone-trap", async (AppDbContext db) =>
-        {
-            var service = await db.Services.OrderBy(s => s.Id).FirstAsync();
-            var clientId = await db.Clients.OrderBy(c => c.Id).Select(c => c.Id).FirstAsync();
-            var staffId = await db.Staff.OrderBy(s => s.Id).Select(s => s.Id).FirstAsync();
-
-            var start = new DateTimeOffset(2026, 10, 12, 9, 0, 0, TimeSpan.FromHours(10.5));
-
-            db.Appointments.Add(new Appointment
-            {
-                ClientId = clientId,
-                ServiceId = service.Id,
-                StaffId = staffId,
-                Start = start,
-                End = start.AddMinutes(service.DurationMinutes),
-                Notes = "tz-test"
-            });
-
-            try
-            {
-                await db.SaveChangesAsync();
-                return Results.Ok(new { saved = true });
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine(ex);   // full details in the output window
-                return Results.Ok(new
-                {
-                    saved = false,
-                    error = ex.GetType().Name,
-                    message = ex.Message,
-                    inner = ex.InnerException?.Message
-                });
-            }
+            return Results.Ok(AppointmentDto.FromEntity(appointment));
         });
     }
 }

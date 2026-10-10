@@ -1,9 +1,12 @@
 using BookingApp.Api.Models;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 
 namespace BookingApp.Api.Data;
 
-public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(options)
+public class AppDbContext(DbContextOptions<AppDbContext> options)
+    : IdentityDbContext<AppUser, IdentityRole<int>, int>(options)
 {
     public DbSet<Service> Services => Set<Service>();
     public DbSet<Staff> Staff => Set<Staff>();

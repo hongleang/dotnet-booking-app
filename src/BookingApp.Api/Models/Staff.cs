@@ -8,4 +8,6 @@ public class Staff
     public bool IsActive { get; set; } = true;
     
     public List<Appointment> Appointments { get; set; } = [];
+    
+    public List<TimeOff> TimeOffs { get; set; } = [];
 }

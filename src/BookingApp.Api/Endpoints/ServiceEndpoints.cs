@@ -1,3 +1,4 @@
+using BookingApp.Api.Auth;
 using BookingApp.Api.Data;
 using BookingApp.Api.Models;
 using Microsoft.EntityFrameworkCore;
@@ -41,6 +42,6 @@ public static class ServiceEndpoints
             
             var dto = new ServiceDto(service.Id, service.Name, service.DurationMinutes, Math.Round(service.Price, 2));
             return Results.Created($"/services/{service.Id}", dto);
-        });
+        }).RequireAuthorization(Policies.AdminOnly);
     }
 }

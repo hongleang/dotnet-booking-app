@@ -1,9 +1,12 @@
+using System.Security.Claims;
+using BookingApp.Api.Auth;
 using BookingApp.Api.Data;
 using BookingApp.Api.Data.Seeders;
 using BookingApp.Api.Endpoints;
 using BookingApp.Api.Models;
 using BookingApp.Api.Repositories;
 using BookingApp.Api.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 
@@ -29,7 +32,8 @@ builder.Services
         options.Lockout.MaxFailedAccessAttempts = 5;
         options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
     })
-    .AddEntityFrameworkStores<AppDbContext>();
+    .AddEntityFrameworkStores<AppDbContext>()
+    .AddClaimsPrincipalFactory<AppClaimsPrincipalFactory>();
 
 builder.Services.ConfigureApplicationCookie(options =>
 {
@@ -52,7 +56,12 @@ builder.Services.ConfigureApplicationCookie(options =>
     };
 });
 
-builder.Services.AddAuthorization();
+builder.Services.AddAuthorizationBuilder()
+    .AddPolicy(Policies.AdminOnly, p => p.RequireRole(Roles.Admin))
+    .AddPolicy(Policies.StaffOrAdmin, (p) => p.RequireRole(Roles.Admin, Roles.Staff))
+    .AddPolicy(Policies.CanViewAppointment, (p) => p.AddRequirements(new AppointmentOwnerRequirement()));
+
+builder.Services.AddSingleton<IAuthorizationHandler, AppointmentOwnerHandler>();
 
 builder.Services.ConfigureHttpJsonOptions(o =>
     o.SerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter()));
@@ -66,14 +75,21 @@ app.UseAuthorization();
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
-    
+
     // Seeding db
     using var scope = app.Services.CreateScope();
     await scope.ServiceProvider.GetRequiredService<AppDbContext>().Database.MigrateAsync();
+    await scope.ServiceProvider.GetRequiredService<DatabaseSeeder>().SeedUserAsync();
     await scope.ServiceProvider.GetRequiredService<DatabaseSeeder>().SeedAsync();
 }
 
 app.UseHttpsRedirection();
+
+app.MapAuthEndpoints();
+
+app.MapGet("/claims", (ClaimsPrincipal user) =>
+        user.Claims.Select(c => new { c.Type, c.Value }))
+    .RequireAuthorization();
 
 app.MapServiceEndpoints();
 
